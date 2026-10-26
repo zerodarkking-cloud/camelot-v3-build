@@ -4,13 +4,59 @@ import Foundation
 /// Идентификаторы задаются в Config.xcconfig и попадают сюда через Info.plist,
 /// поэтому менять их нужно только в одном месте.
 enum AppConstants {
-    static let appGroupID: String =
+    static let declaredAppGroupID: String =
         Bundle.main.object(forInfoDictionaryKey: "CamelotAppGroup") as? String
             ?? "group.com.camelot.browser.shared"
 
-    static let tunnelBundleID: String =
-        Bundle.main.object(forInfoDictionaryKey: "CamelotTunnelBundleID") as? String
+    /// Фактическая App Group. Программы сайдлоада (Impactor, Sideloadly, AltStore, SideStore)
+    /// переименовывают группу в «<группа>.<TeamID>», поэтому берём ту, к которой у приложения
+    /// реально есть доступ: из Info.plist, ALTAppGroups или из embedded.mobileprovision.
+    static let appGroupID: String = {
+        var candidates = [declaredAppGroupID]
+        if let altGroups = Bundle.main.object(forInfoDictionaryKey: "ALTAppGroups") as? [String] {
+            candidates += altGroups
+        }
+        // Сначала группа, производная от нашей (одинаковая у приложения и extension),
+        // потом остальные, например автоматическая «group.<bundle id>.<TeamID>».
+        let provisioned = provisionedAppGroups()
+        candidates += provisioned.filter { $0.hasPrefix(declaredAppGroupID) }
+        candidates += provisioned.filter { !$0.hasPrefix(declaredAppGroupID) }
+        let manager = FileManager.default
+        return candidates.first { manager.containerURL(forSecurityApplicationGroupIdentifier: $0) != nil }
+            ?? declaredAppGroupID
+    }()
+
+    /// Bundle ID VPN-extension. Берётся из вложенного .appex, чтобы не зависеть от того,
+    /// поменяла ли программа установки идентификаторы.
+    static let tunnelBundleID: String = {
+        if let plugins = Bundle.main.builtInPlugInsURL,
+           let items = try? FileManager.default.contentsOfDirectory(at: plugins, includingPropertiesForKeys: nil) {
+            for url in items where url.pathExtension == "appex" {
+                guard let bundle = Bundle(url: url),
+                      let ext = bundle.object(forInfoDictionaryKey: "NSExtension") as? [String: Any],
+                      ext["NSExtensionPointIdentifier"] as? String == "com.apple.networkextension.packet-tunnel",
+                      let id = bundle.bundleIdentifier else { continue }
+                return id
+            }
+        }
+        return Bundle.main.object(forInfoDictionaryKey: "CamelotTunnelBundleID") as? String
             ?? "com.camelot.browser.app.tunnel-extension"
+    }()
+
+    /// Группы из профиля подписи (его нет при установке через TrollStore — тогда пусто).
+    private static func provisionedAppGroups() -> [String] {
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let data = try? Data(contentsOf: url),
+              let start = data.range(of: Data("<?xml".utf8)),
+              let end = data.range(of: Data("</plist>".utf8), in: start.lowerBound ..< data.endIndex),
+              let plist = try? PropertyListSerialization.propertyList(
+                  from: data.subdata(in: start.lowerBound ..< end.upperBound), format: nil
+              ) as? [String: Any],
+              let entitlements = plist["Entitlements"] as? [String: Any],
+              let groups = entitlements["com.apple.security.application-groups"] as? [String]
+        else { return [] }
+        return groups
+    }
 
     /// 1280 — минимальный MTU для IPv6 (RFC 8200). Пакеты такого размера
     /// гарантированно проходят по сотовой сети МТС без фрагментации.
