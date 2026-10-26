@@ -36,9 +36,9 @@ jobs:
           go-version: "1.25"
           cache: false
 
-      - name: Cache Libbox
+      - name: Restore Libbox cache
         id: libbox-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: Frameworks/Libbox.xcframework
           key: libbox-v1.14.4-ios-${{ hashFiles('scripts/build-libbox.sh') }}
@@ -46,9 +46,21 @@ jobs:
       - name: Build Libbox (sing-box core)
         if: steps.libbox-cache.outputs.cache-hit != 'true'
         run: |
-          set -o pipefail
           mkdir -p build
-          PLATFORM=ios ./scripts/build-libbox.sh 2>&1 | tee build/libbox.log
+          if ! PLATFORM=ios ./scripts/build-libbox.sh > build/libbox.log 2>&1; then
+            ./scripts/ci-annotate.sh "libbox" build/libbox.log
+            tail -n 80 build/libbox.log
+            exit 1
+          fi
+          tail -n 5 build/libbox.log
+
+      # Сохраняем ядро сразу, чтобы следующая сборка не тратила на него 7 минут, даже если дальше что-то упадёт.
+      - name: Save Libbox cache
+        if: steps.libbox-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: Frameworks/Libbox.xcframework
+          key: libbox-v1.14.4-ios-${{ hashFiles('scripts/build-libbox.sh') }}
 
       - name: Tools
         run: brew install xcodegen ldid
@@ -58,8 +70,8 @@ jobs:
 
       - name: Build app (without signing)
         run: |
-          set -o pipefail
           mkdir -p build
+          set +e
           xcodebuild \
             -project CamelotTunnel.xcodeproj \
             -target CamelotTunnel \
@@ -69,11 +81,25 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build | tee build/xcodebuild.log | grep -E "error:|warning: .*Libbox|BUILD (SUCCEEDED|FAILED)" || true
-          test -d build/sym/Release-iphoneos/CamelotTunnel.app
+            build > build/xcodebuild.log 2>&1
+          code=$?
+          set -e
+          APP=build/sym/Release-iphoneos/CamelotTunnel.app
+          if [ $code -ne 0 ] || [ ! -f "$APP/CamelotTunnel" ] || [ ! -f "$APP/PlugIns/TunnelExtension.appex/TunnelExtension" ]; then
+            ./scripts/ci-annotate.sh "xcodebuild" build/xcodebuild.log '(error|fatal):'
+            grep -E '(error|fatal):' build/xcodebuild.log | head -n 60 || tail -n 80 build/xcodebuild.log
+            exit 1
+          fi
+          grep -E 'BUILD SUCCEEDED' build/xcodebuild.log
 
       - name: Package .tipa
-        run: ./scripts/package-tipa.sh build/sym/Release-iphoneos/CamelotTunnel.app dist
+        run: |
+          if ! ./scripts/package-tipa.sh build/sym/Release-iphoneos/CamelotTunnel.app dist > build/package.log 2>&1; then
+            ./scripts/ci-annotate.sh "package" build/package.log
+            cat build/package.log
+            exit 1
+          fi
+          cat build/package.log
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
