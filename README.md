@@ -29,7 +29,17 @@ CamelotTunnel/
 
 **Про US-профиль.** Приложение ставится из Xcode прямо на iPhone, регион Apple ID и App Store (US или RU) роли не играет.
 
-## Что нужно
+## Сборка без Mac: GitHub Actions + TrollStore
+
+Ветка `ios-tunnel` собирается сама при каждом push: GitHub на своём macOS собирает ядро sing-box и приложение, подписывает их ldid с VPN-entitlements и выкладывает `CamelotTunnel-1.0.tipa` в раздел **Releases** (сборка `build-N`).
+
+1. На iPhone откройте Releases репозитория в Safari и скачайте последний `.tipa`.
+2. «Поделиться» → TrollStore → Install.
+3. Откройте Camelot, добавьте сервер, нажмите кнопку. iOS один раз попросит разрешить VPN.
+
+Пересобрать вручную: вкладка Actions → «Build iOS (TrollStore)» → Run workflow. TrollStore работает на iOS 14.0–16.6.1, 16.7 RC и 17.0; на других версиях приложение нужно подписывать платным аккаунтом разработчика (раздел ниже).
+
+## Что нужно для сборки на Mac
 
 - Mac с актуальным Xcode и Homebrew: `brew install go xcodegen`
 - **Платный Apple Developer Program.** На бесплатном аккаунте (Personal Team) capability Network Extensions недоступна — VPN-приложение не подпишется.
