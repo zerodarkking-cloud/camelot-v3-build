@@ -46,6 +46,8 @@ targets:
         embed: false
       - sdk: NetworkExtension.framework
       - sdk: SystemConfiguration.framework
+      # Ядро обращается к UIApplication/UIDevice (фоновые задачи, имя устройства) — нужен UIKit и в extension.
+      - sdk: UIKit.framework
       - sdk: libresolv.tbd
 
   TunnelExtension:
@@ -67,4 +69,6 @@ targets:
         embed: false
       - sdk: NetworkExtension.framework
       - sdk: SystemConfiguration.framework
+      # Ядро обращается к UIApplication/UIDevice (фоновые задачи, имя устройства) — нужен UIKit и в extension.
+      - sdk: UIKit.framework
       - sdk: libresolv.tbd
