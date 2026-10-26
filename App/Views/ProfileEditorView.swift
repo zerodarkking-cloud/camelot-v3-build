@@ -37,7 +37,7 @@ struct ProfileEditorView: View {
                 HStack {
                     Text("Порт")
                     Spacer()
-                    TextField("443", value: $profile.port, format: .number.grouping(.never))
+                    TextField("1080", value: $profile.port, format: .number.grouping(.never))
                         .keyboardType(.numberPad)
                         .multilineTextAlignment(.trailing)
                         .frame(maxWidth: 100)
@@ -45,10 +45,16 @@ struct ProfileEditorView: View {
             } header: {
                 Text("Сервер")
             } footer: {
-                Text("Для МТС укажите IPv6-адрес VPS или домен с AAAA-записью. На VPS inbound должен слушать «::», иначе подключения по IPv6 не принимаются.")
+                if profile.proto.isPlainProxy {
+                    Text("Адрес и порт прокси, как их выдал провайдер.")
+                } else {
+                    Text("Для МТС укажите IPv6-адрес VPS или домен с AAAA-записью. На VPS inbound должен слушать «::», иначе подключения по IPv6 не принимаются.")
+                }
             }
 
             switch profile.proto {
+            case .socks, .http:
+                plainProxySection
             case .shadowsocks:
                 shadowsocksSection
             case .vless:
@@ -57,7 +63,7 @@ struct ProfileEditorView: View {
 
             networkSection
         }
-        .navigationTitle(isNew ? "Новый сервер" : "Сервер")
+        .navigationTitle(isNew ? "Новый прокси" : "Прокси")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -79,6 +85,27 @@ struct ProfileEditorView: View {
     }
 
     // MARK: - Секции
+
+    private var plainProxySection: some View {
+        Section {
+            TextField("Логин", text: $profile.username)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .font(.body.monospaced())
+            secretField("Пароль", text: $profile.password)
+            if profile.proto == .http {
+                Toggle("HTTPS (TLS до прокси)", isOn: $profile.useTLS)
+            }
+        } header: {
+            Text("Авторизация")
+        } footer: {
+            if profile.proto == .http {
+                Text("HTTP-прокси передаёт только TCP: UDP и QUIC отключаются автоматически, приложения переходят на TCP. DNS идёт через прокси.")
+            } else {
+                Text("Оставьте поля пустыми, если прокси без логина. DNS идёт через прокси, IP телефона сайты не видят.")
+            }
+        }
+    }
 
     private var shadowsocksSection: some View {
         Section {
@@ -143,7 +170,7 @@ struct ProfileEditorView: View {
                         .foregroundStyle(profile.mtu == AppConstants.defaultMTU ? Color.secondary : Color.orange)
                 }
             }
-            Picker("Подключение к VPS", selection: $profile.serverIPPreference) {
+            Picker("Подключение к серверу", selection: $profile.serverIPPreference) {
                 ForEach(ServerIPPreference.allCases) { item in
                     Text(item.title).tag(item)
                 }
@@ -153,7 +180,7 @@ struct ProfileEditorView: View {
         } header: {
             Text("Сеть (МТС)")
         } footer: {
-            Text("MTU 1280 — минимальный для IPv6, крупные пакеты не теряются в сотовой сети. «Подключение к VPS» действует, если адрес сервера — домен. «IPv6 для сайтов» включайте, только если у VPS есть исходящий IPv6. Блокировка QUIC переводит приложения на TCP — помогает, если видео грузится рывками.")
+            Text("MTU 1280 — минимальный для IPv6, крупные пакеты не теряются в сотовой сети. «Подключение к серверу» действует, если адрес — домен. «IPv6 для сайтов» включайте, только если прокси умеет выходить в IPv6. Блокировка QUIC переводит приложения на TCP — помогает, если видео грузится рывками.")
         }
     }
 

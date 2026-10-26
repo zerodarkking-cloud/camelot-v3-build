@@ -8,12 +8,13 @@ struct ServerListView: View {
 
     @State private var editing: ProxyProfile?
     @State private var importError: String?
+    @State private var importInfo: String?
 
     var body: some View {
         List {
             if store.profiles.isEmpty {
                 Section {
-                    Text("Серверов пока нет. Нажмите «+» и введите данные вручную или вставьте ссылку ss:// или vless://, скопированную после настройки VPS.")
+                    Text("Прокси пока нет. Скопируйте строку прокси, например socks5://host:port:логин:пароль, и нажмите «+» → «Вставить из буфера». Можно вставить сразу список, по одному прокси в строке.")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -55,14 +56,14 @@ struct ServerListView: View {
                 .onDelete { store.delete(at: $0) }
             }
         }
-        .navigationTitle("Серверы")
+        .navigationTitle("Прокси")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button {
                         importFromClipboard()
                     } label: {
-                        Label("Вставить ссылку из буфера", systemImage: "doc.on.clipboard")
+                        Label("Вставить из буфера", systemImage: "doc.on.clipboard")
                     }
                     Button {
                         editing = ProxyProfile()
@@ -93,6 +94,14 @@ struct ServerListView: View {
         } message: {
             Text(importError ?? "")
         }
+        .alert("Импорт", isPresented: Binding(
+            get: { importInfo != nil },
+            set: { if !$0 { importInfo = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(importInfo ?? "")
+        }
     }
 
     private func select(_ profile: ProxyProfile) {
@@ -103,14 +112,25 @@ struct ServerListView: View {
 
     private func importFromClipboard() {
         guard let text = UIPasteboard.general.string, !text.isEmpty else {
-            importError = "Буфер обмена пуст. Скопируйте ссылку ss:// или vless:// и попробуйте снова."
+            importError = "Буфер обмена пуст. Скопируйте строку прокси (socks5://, http://, ss:// или vless://) и попробуйте снова."
             return
         }
-        do {
-            // Открываем редактор, чтобы проверить данные перед сохранением.
-            editing = try LinkParser.parse(text)
-        } catch {
-            importError = error.localizedDescription
+        let result = LinkParser.parseMany(text)
+        switch result.profiles.count {
+        case 0:
+            importError = result.errors.first ?? "Не удалось распознать прокси в буфере обмена."
+        case 1 where result.errors.isEmpty:
+            // Один прокси — открываем редактор, чтобы проверить данные перед сохранением.
+            editing = result.profiles[0]
+        default:
+            for profile in result.profiles {
+                store.upsert(profile)
+            }
+            var message = "Добавлено прокси: \(result.profiles.count)."
+            if !result.errors.isEmpty {
+                message += " Не распознано строк: \(result.errors.count) (\(result.errors[0]))."
+            }
+            importInfo = message
         }
     }
 }

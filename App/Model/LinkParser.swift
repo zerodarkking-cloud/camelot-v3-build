@@ -1,6 +1,10 @@
 import Foundation
 
-/// Разбор ссылок `ss://` (SIP002 и старый формат) и `vless://` (Reality/TLS поверх TCP).
+/// Разбор строк прокси:
+/// * `socks5://host:port:логин:пароль` — формат провайдеров прокси;
+/// * `socks5://логин:пароль@host:port`, `http://…`, `https://…` — стандартный URI;
+/// * `host:port:логин:пароль`, `логин:пароль@host:port`, `host:port` без схемы — считаем SOCKS5;
+/// * `ss://` (SIP002 и старый формат) и `vless://` (Reality/TLS поверх TCP).
 enum LinkParser {
     static func parse(_ raw: String) throws -> ProxyProfile {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -11,7 +15,130 @@ enum LinkParser {
         if lower.hasPrefix("vless://") {
             return try parseVLESS(String(text.dropFirst(8)))
         }
-        throw ProfileError("Поддерживаются ссылки ss:// и vless://")
+        for (scheme, proto, tls) in plainSchemes where lower.hasPrefix(scheme) {
+            return try parsePlainProxy(String(text.dropFirst(scheme.count)), proto: proto, tls: tls)
+        }
+        if lower.contains("://") {
+            throw ProfileError("Поддерживаются socks5://, http://, https://, ss:// и vless://")
+        }
+        return try parsePlainProxy(text, proto: .socks, tls: false)
+    }
+
+    /// Несколько прокси, по одному в строке (как в списках от провайдера).
+    static func parseMany(_ raw: String) -> (profiles: [ProxyProfile], errors: [String]) {
+        var profiles: [ProxyProfile] = []
+        var errors: [String] = []
+        for line in raw.components(separatedBy: .newlines) {
+            let item = line.trimmingCharacters(in: .whitespaces)
+            guard !item.isEmpty, !item.hasPrefix("#") else { continue }
+            do {
+                profiles.append(try parse(item))
+            } catch {
+                errors.append(error.localizedDescription)
+            }
+        }
+        return (profiles, errors)
+    }
+
+    private static let plainSchemes: [(String, ProxyProtocol, Bool)] = [
+        ("socks5h://", .socks, false),
+        ("socks5://", .socks, false),
+        ("socks://", .socks, false),
+        ("https://", .http, true),
+        ("http://", .http, false),
+    ]
+
+    // MARK: - SOCKS5 / HTTP
+
+    private static func parsePlainProxy(_ body: String, proto: ProxyProtocol, tls: Bool) throws -> ProxyProfile {
+        let (withoutName, name) = splitFragment(body)
+        let (path, _) = splitQuery(withoutName)
+        let main = path.hasSuffix("/") ? String(path.dropLast()) : path
+        guard !main.isEmpty else { throw ProfileError("Пустая строка прокси") }
+
+        let host: String
+        let port: Int
+        var username = ""
+        var password = ""
+
+        if let at = main.lastIndex(of: "@") {
+            // логин:пароль@host:port
+            let userInfo = String(main[..<at])
+            let hostPort = try splitHostPort(String(main[main.index(after: at)...]))
+            host = hostPort.0
+            port = hostPort.1
+            if let colon = userInfo.firstIndex(of: ":") {
+                username = decode(String(userInfo[..<colon]))
+                password = decode(String(userInfo[userInfo.index(after: colon)...]))
+            } else {
+                username = decode(userInfo)
+            }
+        } else if main.hasPrefix("[") {
+            // [IPv6]:port[:логин:пароль]
+            guard let close = main.firstIndex(of: "]") else { throw ProfileError("Неверный IPv6-адрес прокси") }
+            let rest = main[main.index(after: close)...].split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+            guard rest.count >= 2, rest[0].isEmpty else { throw ProfileError("В строке прокси не указан порт") }
+            host = String(main[main.index(after: main.startIndex) ..< close])
+            port = try parsePort(rest[1])
+            if rest.count == 3 {
+                let credentials = splitCredentials(rest[2])
+                username = credentials.0
+                password = credentials.1
+            }
+        } else {
+            let parts = main.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+            switch parts.count {
+            case 2:
+                host = parts[0]
+                port = try parsePort(parts[1])
+            case 3:
+                host = parts[0]
+                port = try parsePort(parts[1])
+                username = parts[2]
+            default:
+                guard parts.count >= 4 else { throw ProfileError("Не удалось разобрать строку прокси") }
+                if Int(parts[1]) == nil, Int(parts[3]) != nil, parts.count == 4 {
+                    // логин:пароль:host:port
+                    username = parts[0]
+                    password = parts[1]
+                    host = parts[2]
+                    port = try parsePort(parts[3])
+                } else {
+                    // host:port:логин:пароль (пароль может содержать «:»)
+                    host = parts[0]
+                    port = try parsePort(parts[1])
+                    username = parts[2]
+                    password = parts[3...].joined(separator: ":")
+                }
+            }
+        }
+
+        guard !host.isEmpty else { throw ProfileError("В строке прокси не указан адрес") }
+        var profile = ProxyProfile()
+        profile.proto = proto
+        profile.useTLS = tls
+        profile.server = host
+        profile.port = port
+        profile.username = username
+        profile.password = password
+        profile.name = name ?? "\(proto == .socks ? "SOCKS5" : (tls ? "HTTPS" : "HTTP")) · \(host)"
+        return profile
+    }
+
+    private static func splitCredentials(_ text: String) -> (String, String) {
+        guard let colon = text.firstIndex(of: ":") else { return (text, "") }
+        return (String(text[..<colon]), String(text[text.index(after: colon)...]))
+    }
+
+    private static func parsePort(_ text: String) throws -> Int {
+        guard let port = Int(text.trimmingCharacters(in: .whitespaces)), (1 ... 65535).contains(port) else {
+            throw ProfileError("Неверный порт: «\(text)»")
+        }
+        return port
+    }
+
+    private static func decode(_ text: String) -> String {
+        text.removingPercentEncoding ?? text
     }
 
     // MARK: - Shadowsocks

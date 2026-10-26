@@ -147,9 +147,9 @@ struct ServerCard: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("Добавить сервер")
+                    Text("Добавить прокси")
                         .font(.headline)
-                    Text("Вручную или по ссылке ss:// / vless://")
+                    Text("SOCKS5, HTTP, Shadowsocks или VLESS")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -211,7 +211,7 @@ struct NetworkSummary: View {
     let profile: ProxyProfile
 
     var body: some View {
-        Text("MTU \(profile.mtu) · к VPS: \(profile.serverIPPreference.title.lowercased()) · IPv6 для сайтов: \(profile.tunnelIPv6 ? "вкл" : "выкл")")
+        Text("MTU \(profile.mtu) · к серверу: \(profile.serverIPPreference.title.lowercased()) · IPv6 для сайтов: \(profile.tunnelIPv6 ? "вкл" : "выкл")")
             .font(.footnote)
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)

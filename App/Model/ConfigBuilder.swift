@@ -1,6 +1,7 @@
 import Foundation
 
 /// Собирает JSON-конфиг sing-box (формат v1.14) из профиля.
+/// Весь трафик iPhone (TUN) уходит в выбранный прокси: SOCKS5, HTTP, Shadowsocks или VLESS.
 ///
 /// Что важно для МТС:
 /// * `mtu` TUN-интерфейса = 1280 (минимум IPv6) — крупные UDP/QUIC-пакеты не теряются в сотовой сети;
@@ -25,6 +26,24 @@ enum ConfigBuilder {
         ]
 
         switch profile.proto {
+        case .socks:
+            proxy["type"] = "socks"
+            proxy["version"] = "5"
+            if !profile.username.isEmpty {
+                proxy["username"] = profile.username
+                proxy["password"] = profile.password
+            }
+
+        case .http:
+            proxy["type"] = "http"
+            if !profile.username.isEmpty {
+                proxy["username"] = profile.username
+                proxy["password"] = profile.password
+            }
+            if profile.useTLS {
+                proxy["tls"] = ["enabled": true, "server_name": profile.normalizedServer]
+            }
+
         case .shadowsocks:
             proxy["type"] = "shadowsocks"
             proxy["method"] = profile.ssMethod
@@ -80,7 +99,11 @@ enum ConfigBuilder {
             ["protocol": "dns", "action": "hijack-dns"],
             ["ip_is_private": true, "outbound": "direct"],
         ]
-        if profile.blockQUIC {
+        if profile.proto == .http {
+            // HTTP-прокси передаёт только TCP. Остальной UDP отклоняем сразу, чтобы приложения
+            // не ждали таймаута и не уходили мимо прокси (DNS уже обработан выше).
+            rules.append(["network": "udp", "action": "reject"])
+        } else if profile.blockQUIC {
             rules.append(["network": "udp", "port": 443, "action": "reject"])
         }
 

@@ -1,6 +1,8 @@
 import Foundation
 
 enum ProxyProtocol: String, Codable, CaseIterable, Identifiable {
+    case socks
+    case http
     case shadowsocks
     case vless
 
@@ -8,9 +10,16 @@ enum ProxyProtocol: String, Codable, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .socks: return "SOCKS5"
+        case .http: return "HTTP"
         case .shadowsocks: return "Shadowsocks"
         case .vless: return "VLESS"
         }
+    }
+
+    /// Обычные прокси без собственного шифрования (SOCKS5 / HTTP).
+    var isPlainProxy: Bool {
+        self == .socks || self == .http
     }
 }
 
@@ -50,10 +59,16 @@ enum ServerIPPreference: String, Codable, CaseIterable, Identifiable {
 
 struct ProxyProfile: Codable, Identifiable, Equatable {
     var id = UUID()
-    var name = "Мой сервер"
-    var proto: ProxyProtocol = .shadowsocks
+    var name = "Мой прокси"
+    var proto: ProxyProtocol = .socks
     var server = ""
-    var port = 443
+    var port = 1080
+
+    // SOCKS5 / HTTP
+    var username = ""
+    var password = ""
+    /// HTTPS-прокси: TLS-соединение до самого прокси.
+    var useTLS = false
 
     // Shadowsocks
     var ssMethod = "aes-128-gcm"
@@ -74,7 +89,37 @@ struct ProxyProfile: Codable, Identifiable, Equatable {
     /// Отдавать приложениям IPv6-адреса сайтов (AAAA). Включайте, только если у VPS есть исходящий IPv6.
     var tunnelIPv6 = false
     /// Блокировать QUIC (UDP 443), чтобы приложения переходили на TCP.
-    var blockQUIC = false
+    /// Для SOCKS/HTTP включено по умолчанию: многие прокси не пропускают UDP.
+    var blockQUIC = true
+
+    init() {}
+
+    // Терпимое чтение: профили, сохранённые старой версией, не теряются при добавлении новых полей.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = ProxyProfile()
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? d.id
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? d.name
+        proto = (try? c.decodeIfPresent(ProxyProtocol.self, forKey: .proto)) ?? d.proto
+        server = try c.decodeIfPresent(String.self, forKey: .server) ?? d.server
+        port = try c.decodeIfPresent(Int.self, forKey: .port) ?? d.port
+        username = try c.decodeIfPresent(String.self, forKey: .username) ?? d.username
+        password = try c.decodeIfPresent(String.self, forKey: .password) ?? d.password
+        useTLS = try c.decodeIfPresent(Bool.self, forKey: .useTLS) ?? d.useTLS
+        ssMethod = try c.decodeIfPresent(String.self, forKey: .ssMethod) ?? d.ssMethod
+        ssPassword = try c.decodeIfPresent(String.self, forKey: .ssPassword) ?? d.ssPassword
+        uuid = try c.decodeIfPresent(String.self, forKey: .uuid) ?? d.uuid
+        flow = try c.decodeIfPresent(String.self, forKey: .flow) ?? d.flow
+        security = (try? c.decodeIfPresent(VLESSSecurity.self, forKey: .security)) ?? d.security
+        sni = try c.decodeIfPresent(String.self, forKey: .sni) ?? d.sni
+        fingerprint = try c.decodeIfPresent(String.self, forKey: .fingerprint) ?? d.fingerprint
+        realityPublicKey = try c.decodeIfPresent(String.self, forKey: .realityPublicKey) ?? d.realityPublicKey
+        realityShortID = try c.decodeIfPresent(String.self, forKey: .realityShortID) ?? d.realityShortID
+        mtu = try c.decodeIfPresent(Int.self, forKey: .mtu) ?? d.mtu
+        serverIPPreference = (try? c.decodeIfPresent(ServerIPPreference.self, forKey: .serverIPPreference)) ?? d.serverIPPreference
+        tunnelIPv6 = try c.decodeIfPresent(Bool.self, forKey: .tunnelIPv6) ?? d.tunnelIPv6
+        blockQUIC = try c.decodeIfPresent(Bool.self, forKey: .blockQUIC) ?? d.blockQUIC
+    }
 
     static let ssMethods = [
         "2022-blake3-aes-128-gcm",
@@ -109,6 +154,8 @@ struct ProxyProfile: Codable, Identifiable, Equatable {
 
     var protocolTitle: String {
         switch proto {
+        case .socks: return username.isEmpty ? "SOCKS5" : "SOCKS5 · \(username)"
+        case .http: return (useTLS ? "HTTPS" : "HTTP") + (username.isEmpty ? "" : " · \(username)")
         case .shadowsocks: return "Shadowsocks · \(ssMethod)"
         case .vless: return "VLESS · \(security.title)"
         }
@@ -126,6 +173,10 @@ struct ProxyProfile: Codable, Identifiable, Equatable {
         }
 
         switch proto {
+        case .socks, .http:
+            if username.isEmpty, !password.isEmpty {
+                throw ProfileError("Указан пароль, но не указан логин прокси")
+            }
         case .shadowsocks:
             guard Self.ssMethods.contains(ssMethod) else {
                 throw ProfileError("Метод шифрования «\(ssMethod)» не поддерживается")
