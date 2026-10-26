@@ -1,0 +1,68 @@
+# Описание Xcode-проекта для XcodeGen (brew install xcodegen).
+# Сгенерировать проект: xcodegen generate  →  откроется CamelotTunnel.xcodeproj
+name: CamelotTunnel
+
+options:
+  bundleIdPrefix: com.camelot.browser
+  deploymentTarget:
+    iOS: "16.0"
+  developmentLanguage: ru
+  createIntermediateGroups: true
+
+configFiles:
+  Debug: Config.xcconfig
+  Release: Config.xcconfig
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    TARGETED_DEVICE_FAMILY: "1"
+
+targets:
+  CamelotTunnel:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes:
+          - Info.plist
+          - "*.entitlements"
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID)
+        INFOPLIST_FILE: App/Info.plist
+        CODE_SIGN_ENTITLEMENTS: App/CamelotTunnel.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    dependencies:
+      - target: TunnelExtension
+      # Libbox — статическая библиотека, встраивать не нужно: она линкуется в каждый бинарник.
+      - framework: Frameworks/Libbox.xcframework
+        embed: false
+      - sdk: NetworkExtension.framework
+      - sdk: libresolv.tbd
+
+  TunnelExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: TunnelExtension
+        excludes:
+          - Info.plist
+          - "*.entitlements"
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(TUNNEL_BUNDLE_ID)
+        INFOPLIST_FILE: TunnelExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: TunnelExtension/TunnelExtension.entitlements
+    dependencies:
+      - framework: Frameworks/Libbox.xcframework
+        embed: false
+      - sdk: NetworkExtension.framework
+      - sdk: libresolv.tbd

@@ -1,0 +1,6 @@
+build/
+Frameworks/Libbox.xcframework/
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+.DS_Store

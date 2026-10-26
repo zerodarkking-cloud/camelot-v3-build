@@ -1,0 +1,101 @@
+# Сборка iOS-приложения без Mac: GitHub собирает ядро sing-box и приложение на своём macOS,
+# подписывает ldid с VPN-entitlements и выкладывает .tipa для TrollStore в Releases.
+name: Build iOS (TrollStore)
+
+on:
+  push:
+    branches: [main, ios-tunnel]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 75
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_16*.app | sort -V | tail -n1)"
+          xcodebuild -version
+
+      - name: Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: false
+
+      - name: Cache Libbox
+        id: libbox-cache
+        uses: actions/cache@v4
+        with:
+          path: Frameworks/Libbox.xcframework
+          key: libbox-v1.14.4-ios-${{ hashFiles('scripts/build-libbox.sh') }}
+
+      - name: Build Libbox (sing-box core)
+        if: steps.libbox-cache.outputs.cache-hit != 'true'
+        run: |
+          set -o pipefail
+          mkdir -p build
+          PLATFORM=ios ./scripts/build-libbox.sh 2>&1 | tee build/libbox.log
+
+      - name: Tools
+        run: brew install xcodegen ldid
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build app (without signing)
+        run: |
+          set -o pipefail
+          mkdir -p build
+          xcodebuild \
+            -project CamelotTunnel.xcodeproj \
+            -target CamelotTunnel \
+            -configuration Release \
+            -sdk iphoneos \
+            SYMROOT="$PWD/build/sym" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build | tee build/xcodebuild.log | grep -E "error:|warning: .*Libbox|BUILD (SUCCEEDED|FAILED)" || true
+          test -d build/sym/Release-iphoneos/CamelotTunnel.app
+
+      - name: Package .tipa
+        run: ./scripts/package-tipa.sh build/sym/Release-iphoneos/CamelotTunnel.app dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CamelotTunnel-tipa
+          path: dist/*.tipa
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: build/*.log
+          if-no-files-found: ignore
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: CamelotTunnel build ${{ github.run_number }}
+          prerelease: true
+          files: dist/*.tipa
+          body: |
+            Установка: скачайте .tipa на iPhone (Safari) → «Поделиться» → TrollStore → Install.
+            Ядро sing-box v1.14.4, MTU 1280, IPv4 + IPv6.
