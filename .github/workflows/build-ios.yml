@@ -86,8 +86,8 @@ jobs:
           set -e
           APP=build/sym/Release-iphoneos/CamelotTunnel.app
           if [ $code -ne 0 ] || [ ! -f "$APP/CamelotTunnel" ] || [ ! -f "$APP/PlugIns/TunnelExtension.appex/TunnelExtension" ]; then
-            ./scripts/ci-annotate.sh "xcodebuild" build/xcodebuild.log '(error|fatal):'
-            grep -E '(error|fatal):' build/xcodebuild.log | head -n 60 || tail -n 80 build/xcodebuild.log
+            ./scripts/ci-annotate.sh "xcodebuild" build/xcodebuild.log '(error|fatal):|Undefined symbol|referenced from|^ld: |duplicate symbol|^ +"_|^ +_[A-Za-z]'
+            grep -B 40 -E '(error|fatal):' build/xcodebuild.log | head -n 120 || tail -n 80 build/xcodebuild.log
             exit 1
           fi
           grep -E 'BUILD SUCCEEDED' build/xcodebuild.log
