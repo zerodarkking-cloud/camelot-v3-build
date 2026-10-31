@@ -1,0 +1,151 @@
+<Window x:Class="Camelot.App.ProfileEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Прокси"
+        Icon="Assets/camelot.ico"
+        Width="480" Height="740" MinWidth="420" MinHeight="480"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="22,10,22,18">
+
+                <!-- Основное -->
+                <TextBlock Text="ОСНОВНОЕ" Style="{StaticResource SectionLabelStyle}" Margin="2,10,0,0" />
+                <TextBlock Text="Название" Style="{StaticResource FieldLabelStyle}" />
+                <TextBox x:Name="NameBox" />
+                <TextBlock Text="Протокол" Style="{StaticResource FieldLabelStyle}" />
+                <ComboBox x:Name="ProtocolBox" HorizontalAlignment="Stretch" SelectionChanged="ProtocolBox_SelectionChanged" />
+
+                <!-- Сервер -->
+                <TextBlock Text="СЕРВЕР" Style="{StaticResource SectionLabelStyle}" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="12" />
+                        <ColumnDefinition Width="110" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Адрес: домен, IPv4 или IPv6" Style="{StaticResource FieldLabelStyle}" Margin="2,0,0,6" />
+                        <TextBox x:Name="ServerBox" FontFamily="{StaticResource MonoFont}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Порт" Style="{StaticResource FieldLabelStyle}" Margin="2,0,0,6" />
+                        <TextBox x:Name="PortBox" FontFamily="{StaticResource MonoFont}" />
+                    </StackPanel>
+                </Grid>
+                <TextBlock x:Name="ServerHint" Style="{StaticResource HintStyle}" />
+
+                <!-- SOCKS5 / HTTP -->
+                <StackPanel x:Name="PlainPanel">
+                    <TextBlock Text="АВТОРИЗАЦИЯ" Style="{StaticResource SectionLabelStyle}" />
+                    <TextBlock Text="Логин" Style="{StaticResource FieldLabelStyle}" Margin="2,0,0,6" />
+                    <TextBox x:Name="UsernameBox" FontFamily="{StaticResource MonoFont}" />
+                    <TextBlock Text="Пароль" Style="{StaticResource FieldLabelStyle}" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <PasswordBox x:Name="PasswordHidden" FontFamily="{StaticResource MonoFont}" />
+                        <TextBox x:Name="PasswordVisible" FontFamily="{StaticResource MonoFont}" Visibility="Collapsed" />
+                        <Button Grid.Column="1" x:Name="PasswordToggle" Style="{StaticResource IconButtonStyle}"
+                                Content="&#xE7B3;" Margin="6,0,0,0" ToolTip="Показать пароль"
+                                AutomationProperties.Name="Показать пароль" Click="PasswordToggle_Click" />
+                    </Grid>
+                    <CheckBox x:Name="HttpsCheck" Content="HTTPS (TLS до прокси)" Margin="0,12,0,0" />
+                    <TextBlock x:Name="PlainHint" Style="{StaticResource HintStyle}" />
+                </StackPanel>
+
+                <!-- Shadowsocks -->
+                <StackPanel x:Name="SsPanel">
+                    <TextBlock Text="SHADOWSOCKS" Style="{StaticResource SectionLabelStyle}" />
+                    <TextBlock Text="Шифрование" Style="{StaticResource FieldLabelStyle}" Margin="2,0,0,6" />
+                    <ComboBox x:Name="SsMethodBox" HorizontalAlignment="Stretch" SelectionChanged="SsMethodBox_SelectionChanged" />
+                    <TextBlock Text="Пароль" Style="{StaticResource FieldLabelStyle}" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <PasswordBox x:Name="SsPasswordHidden" FontFamily="{StaticResource MonoFont}" />
+                        <TextBox x:Name="SsPasswordVisible" FontFamily="{StaticResource MonoFont}" Visibility="Collapsed" />
+                        <Button Grid.Column="1" x:Name="SsPasswordToggle" Style="{StaticResource IconButtonStyle}"
+                                Content="&#xE7B3;" Margin="6,0,0,0" ToolTip="Показать пароль"
+                                AutomationProperties.Name="Показать пароль" Click="SsPasswordToggle_Click" />
+                    </Grid>
+                    <TextBlock x:Name="SsHint" Style="{StaticResource HintStyle}" />
+                </StackPanel>
+
+                <!-- VLESS -->
+                <StackPanel x:Name="VlessPanel">
+                    <TextBlock Text="VLESS" Style="{StaticResource SectionLabelStyle}" />
+                    <TextBlock Text="UUID" Style="{StaticResource FieldLabelStyle}" Margin="2,0,0,6" />
+                    <TextBox x:Name="UuidBox" FontFamily="{StaticResource MonoFont}" />
+                    <CheckBox x:Name="FlowCheck" Content="XTLS Vision (flow)" Margin="0,12,0,0" />
+                    <TextBlock Text="Безопасность" Style="{StaticResource FieldLabelStyle}" />
+                    <ComboBox x:Name="SecurityBox" HorizontalAlignment="Stretch" SelectionChanged="SecurityBox_SelectionChanged" />
+                    <TextBlock Text="SNI (server name)" Style="{StaticResource FieldLabelStyle}" />
+                    <TextBox x:Name="SniBox" FontFamily="{StaticResource MonoFont}" />
+                    <TextBlock Text="Отпечаток TLS" Style="{StaticResource FieldLabelStyle}" />
+                    <ComboBox x:Name="FingerprintBox" HorizontalAlignment="Stretch" />
+                    <StackPanel x:Name="RealityPanel">
+                        <TextBlock Text="Публичный ключ (pbk)" Style="{StaticResource FieldLabelStyle}" />
+                        <TextBox x:Name="PublicKeyBox" FontFamily="{StaticResource MonoFont}" />
+                        <TextBlock Text="Short ID (sid)" Style="{StaticResource FieldLabelStyle}" />
+                        <TextBox x:Name="ShortIdBox" FontFamily="{StaticResource MonoFont}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Сеть -->
+                <TextBlock Text="СЕТЬ" Style="{StaticResource SectionLabelStyle}" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="110" />
+                        <ColumnDefinition Width="12" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="MTU" Style="{StaticResource FieldLabelStyle}" Margin="2,0,0,6" />
+                        <TextBox x:Name="MtuBox" FontFamily="{StaticResource MonoFont}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Подключение к серверу" Style="{StaticResource FieldLabelStyle}" Margin="2,0,0,6" />
+                        <ComboBox x:Name="IpPreferenceBox" HorizontalAlignment="Stretch" />
+                    </StackPanel>
+                </Grid>
+                <CheckBox x:Name="TunnelIPv6Check" Content="IPv6 для сайтов" Margin="0,14,0,0" />
+                <CheckBox x:Name="BlockQuicCheck" Content="Блокировать QUIC (UDP 443)" Margin="0,8,0,0" />
+                <TextBlock Style="{StaticResource HintStyle}">
+                    MTU 1280 — минимальный для IPv6: крупные пакеты не теряются в сотовых сетях (МТС и др.).
+                    «Подключение к серверу» действует, если адрес — домен. «IPv6 для сайтов» включайте,
+                    только если прокси выходит в IPv6. Блокировка QUIC переводит браузеры на TCP —
+                    помогает, если видео грузится рывками.
+                </TextBlock>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="1" Padding="22,12" BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}"
+                Background="{DynamicResource LayerFillColorDefaultBrush}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="ErrorText" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0"
+                           Foreground="{DynamicResource SystemFillColorCriticalBrush}" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="Отмена" IsCancel="True" MinWidth="90" Margin="0,0,8,0" />
+                    <Button Content="Сохранить" IsDefault="True" MinWidth="110"
+                            Style="{DynamicResource AccentButtonStyle}" Click="Save_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

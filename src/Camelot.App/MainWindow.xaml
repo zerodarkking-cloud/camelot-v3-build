@@ -1,0 +1,297 @@
+<Window x:Class="Camelot.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Camelot"
+        Icon="Assets/camelot.ico"
+        Width="460" Height="760" MinWidth="420" MinHeight="600"
+        WindowStartupLocation="CenterScreen">
+
+    <TabControl x:Name="Tabs" Margin="12,6,12,12">
+
+        <!-- ============================================================ Главная -->
+        <TabItem Header="Главная">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="6,18,6,16">
+
+                    <Button Style="{StaticResource PowerButtonStyle}"
+                            Command="{Binding ToggleCommand}"
+                            ToolTip="{Binding PowerButtonHint}"
+                            AutomationProperties.Name="{Binding PowerButtonHint}"
+                            HorizontalAlignment="Center" />
+
+                    <TextBlock Text="{Binding StatusText}" FontSize="22" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" Margin="0,14,0,0" />
+                    <TextBlock Text="{Binding ElapsedText}" FontSize="13"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                               HorizontalAlignment="Center" Margin="0,2,0,0"
+                               Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibility}}" />
+
+                    <!-- Ошибка -->
+                    <Border Margin="0,16,0,0" Padding="12,10" CornerRadius="8"
+                            Background="{DynamicResource SystemFillColorCautionBackgroundBrush}"
+                            Visibility="{Binding HasError, Converter={StaticResource BoolToVisibility}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="&#xE7BA;" FontFamily="{StaticResource IconFont}" FontSize="16"
+                                       Foreground="{DynamicResource SystemFillColorCautionBrush}"
+                                       Margin="0,2,10,0" VerticalAlignment="Top" />
+                            <TextBlock Grid.Column="1" Text="{Binding ErrorMessage}" TextWrapping="Wrap"
+                                       VerticalAlignment="Center" />
+                            <Button Grid.Column="2" Style="{StaticResource IconButtonStyle}" Content="&#xE711;"
+                                    Width="28" Height="28" Margin="8,-4,-6,0" VerticalAlignment="Top"
+                                    Command="{Binding DismissErrorCommand}" ToolTip="Скрыть"
+                                    AutomationProperties.Name="Скрыть ошибку" />
+                        </Grid>
+                    </Border>
+
+                    <!-- Режим -->
+                    <TextBlock Text="РЕЖИМ" Style="{StaticResource SectionLabelStyle}" />
+                    <Border CornerRadius="8" BorderThickness="1" Padding="2"
+                            Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+                        <UniformGrid Columns="2">
+                            <RadioButton Style="{StaticResource SegmentRadioStyle}" GroupName="Mode"
+                                         Content="Весь трафик (TUN)"
+                                         IsChecked="{Binding IsTunMode, Mode=TwoWay}"
+                                         IsEnabled="{Binding CanChangeMode}" />
+                            <RadioButton Style="{StaticResource SegmentRadioStyle}" GroupName="Mode"
+                                         Content="Системный прокси"
+                                         IsChecked="{Binding IsSystemProxyMode, Mode=TwoWay}"
+                                         IsEnabled="{Binding CanChangeMode}" />
+                        </UniformGrid>
+                    </Border>
+                    <TextBlock Text="{Binding ModeHint}" Style="{StaticResource HintStyle}" />
+
+                    <!-- Выбранный прокси -->
+                    <TextBlock Text="ПРОКСИ" Style="{StaticResource SectionLabelStyle}" />
+                    <Button Style="{StaticResource CardButtonStyle}" Click="OpenProxies_Click"
+                            AutomationProperties.Name="Выбрать прокси">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="&#xE774;" FontFamily="{StaticResource IconFont}" FontSize="22"
+                                       Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}"
+                                       VerticalAlignment="Center" Margin="0,0,14,0" />
+                            <StackPanel Grid.Column="1"
+                                        Visibility="{Binding HasProfiles, Converter={StaticResource BoolToVisibility}}">
+                                <TextBlock Text="{Binding ActiveProfile.Name}" FontWeight="SemiBold" FontSize="15"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding ActiveProfile.Address}" FontFamily="{StaticResource MonoFont}"
+                                           FontSize="12.5" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                <TextBlock Text="{Binding ActiveProfile.ProtocolTitle}" FontSize="12" Margin="0,2,0,0"
+                                           TextTrimming="CharacterEllipsis"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1"
+                                        Visibility="{Binding HasProfiles, Converter={StaticResource InverseBoolToVisibility}}">
+                                <TextBlock Text="Добавить прокси" FontWeight="SemiBold" FontSize="15" />
+                                <TextBlock Text="SOCKS5, HTTP, Shadowsocks или VLESS" FontSize="12.5" Margin="0,3,0,0"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="2" Text="&#xE76C;" FontFamily="{StaticResource IconFont}"
+                                       FontSize="12" VerticalAlignment="Center" Margin="10,0,0,0"
+                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                        </Grid>
+                    </Button>
+
+                    <!-- Статистика -->
+                    <StackPanel Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="СОЕДИНЕНИЕ" Style="{StaticResource SectionLabelStyle}" />
+                        <UniformGrid Columns="2" Margin="-4,0,-4,0">
+                            <Border Style="{StaticResource TileStyle}">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource TileLabelStyle}">
+                                        <Run Text="&#xE896;" FontFamily="{StaticResource IconFont}" /> Загрузка
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding DownloadSpeed}" Style="{StaticResource TileValueStyle}" />
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource TileStyle}">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource TileLabelStyle}">
+                                        <Run Text="&#xE898;" FontFamily="{StaticResource IconFont}" /> Отдача
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding UploadSpeed}" Style="{StaticResource TileValueStyle}" />
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource TileStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Всего ↓ / ↑" Style="{StaticResource TileLabelStyle}" />
+                                    <TextBlock Text="{Binding Totals}" Style="{StaticResource TileValueStyle}" FontSize="14" />
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource TileStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Задержка до Google" Style="{StaticResource TileLabelStyle}" />
+                                    <TextBlock Text="{Binding PingText}" Style="{StaticResource TileValueStyle}" />
+                                </StackPanel>
+                            </Border>
+                        </UniformGrid>
+                        <Grid Margin="2,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock>
+                                    <Run Text="Ваш IP для сайтов: " Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                    <Run Text="{Binding ExternalIp, Mode=OneWay}" FontWeight="SemiBold" />
+                                </TextBlock>
+                                <TextBlock FontSize="12" Margin="0,3,0,0"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}">
+                                    <Run Text="Ядро: " />
+                                    <Run Text="{Binding MemoryText, Mode=OneWay}" />
+                                </TextBlock>
+                            </StackPanel>
+                            <Button Grid.Column="1" Command="{Binding CheckCommand}" Margin="8,0,0,0"
+                                    ToolTip="Проверить задержку и внешний IP">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE72C;" FontFamily="{StaticResource IconFont}" FontSize="12"
+                                               VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBlock Text="Проверить" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                    </StackPanel>
+
+                    <TextBlock Text="{Binding NetworkSummary}" FontSize="12" Margin="0,22,0,0"
+                               HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
+
+        <!-- ============================================================ Прокси -->
+        <TabItem Header="Прокси">
+            <Grid Margin="4,16,4,4">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <WrapPanel>
+                    <Button Style="{DynamicResource AccentButtonStyle}" Click="Paste_Click" Margin="0,0,8,8">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE77F;" FontFamily="{StaticResource IconFont}" FontSize="14"
+                                       VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBlock Text="Вставить из буфера" />
+                        </StackPanel>
+                    </Button>
+                    <Button Click="Add_Click" Margin="0,0,8,8">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE710;" FontFamily="{StaticResource IconFont}" FontSize="14"
+                                       VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBlock Text="Добавить вручную" />
+                        </StackPanel>
+                    </Button>
+                </WrapPanel>
+
+                <TextBlock Grid.Row="1" Style="{StaticResource HintStyle}" Margin="2,2,0,12">
+                    Скопируйте строку прокси, например <Run FontFamily="{StaticResource MonoFont}">socks5://host:port:логин:пароль</Run>,
+                    и нажмите «Вставить из буфера». Можно вставить сразу список — по одному прокси в строке.
+                    Щелчок по прокси делает его активным.
+                </TextBlock>
+
+                <ListBox x:Name="ProfileList" Grid.Row="2"
+                         ItemsSource="{Binding Profiles}"
+                         SelectedItem="{Binding SelectedForList, Mode=TwoWay}"
+                         HorizontalContentAlignment="Stretch"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         Background="Transparent" BorderThickness="0"
+                         MouseDoubleClick="ProfileList_MouseDoubleClick">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Grid Width="18" Height="18" Margin="0,0,12,0" VerticalAlignment="Center">
+                                    <Ellipse Stroke="{DynamicResource TextFillColorTertiaryBrush}" StrokeThickness="1.5" />
+                                    <Ellipse Margin="4" Fill="{DynamicResource AccentFillColorDefaultBrush}"
+                                             Visibility="{Binding IsActive, Converter={StaticResource BoolToVisibility}}" />
+                                </Grid>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding Address}" FontFamily="{StaticResource MonoFont}" FontSize="12"
+                                               Margin="0,2,0,0" TextTrimming="CharacterEllipsis"
+                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                    <TextBlock Text="{Binding ProtocolTitle}" FontSize="12" Margin="0,1,0,0"
+                                               TextTrimming="CharacterEllipsis"
+                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
+                                    <Button Style="{StaticResource IconButtonStyle}" Content="&#xE70F;" ToolTip="Изменить"
+                                            AutomationProperties.Name="Изменить" Click="Edit_Click" Tag="{Binding}" />
+                                    <Button Style="{StaticResource IconButtonStyle}" Content="&#xE74D;" ToolTip="Удалить"
+                                            AutomationProperties.Name="Удалить" Click="Delete_Click" Tag="{Binding}" />
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <StackPanel Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="320"
+                            Visibility="{Binding HasProfiles, Converter={StaticResource InverseBoolToVisibility}}">
+                    <TextBlock Text="&#xE774;" FontFamily="{StaticResource IconFont}" FontSize="36"
+                               HorizontalAlignment="Center"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                    <TextBlock Text="Прокси пока нет" FontSize="16" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" Margin="0,12,0,0" />
+                    <TextBlock Text="Скопируйте строку прокси от провайдера и нажмите «Вставить из буфера»."
+                               TextWrapping="Wrap" TextAlignment="Center" Margin="0,6,0,0"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+            </Grid>
+        </TabItem>
+
+        <!-- ============================================================ Журнал -->
+        <TabItem Header="Журнал">
+            <Grid Margin="4,16,4,4">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBox x:Name="LogBox" Text="{Binding LogText, Mode=OneWay}" IsReadOnly="True"
+                         FontFamily="{StaticResource MonoFont}" FontSize="12"
+                         TextWrapping="NoWrap" AcceptsReturn="True"
+                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                         VerticalContentAlignment="Top"
+                         TextChanged="LogBox_TextChanged" />
+                <Grid Grid.Row="1" Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <CheckBox IsChecked="{Binding VerboseLog, Mode=TwoWay}" VerticalAlignment="Center"
+                              ToolTip="Каждое соединение в журнале. Применится при следующем подключении.">
+                        <TextBlock Text="Подробный журнал" TextWrapping="Wrap" />
+                    </CheckBox>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Button Click="CopyLog_Click" Margin="8,0,0,0" ToolTip="Скопировать журнал">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE8C8;" FontFamily="{StaticResource IconFont}" FontSize="12"
+                                           VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <TextBlock Text="Копировать" />
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding ClearLogCommand}" Margin="8,0,0,0" Content="Очистить" />
+                        <Button Style="{StaticResource IconButtonStyle}" Content="&#xE838;" Margin="4,0,0,0"
+                                ToolTip="Открыть папку с файлами Camelot" AutomationProperties.Name="Открыть папку"
+                                Click="OpenFolder_Click" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </TabItem>
+    </TabControl>
+</Window>

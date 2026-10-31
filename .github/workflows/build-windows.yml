@@ -1,0 +1,92 @@
+# Сборка Camelot для Windows: проверки логики, проверка конфигов настоящим sing-box,
+# публикация Camelot.exe (самодостаточный, без установки .NET) и архив для скачивания.
+name: Build Windows
+
+on:
+  push:
+    branches: [windows-client]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SING_BOX_VERSION: "1.14.4"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Download sing-box
+        run: |
+          $name = "sing-box-$env:SING_BOX_VERSION-windows-amd64"
+          Invoke-WebRequest "https://github.com/SagerNet/sing-box/releases/download/v$env:SING_BOX_VERSION/$name.zip" -OutFile "$name.zip"
+          Expand-Archive "$name.zip" -DestinationPath build/sing-box-zip -Force
+          New-Item -ItemType Directory build/sing-box -Force | Out-Null
+          Copy-Item "build/sing-box-zip/$name/*" build/sing-box/
+          & build/sing-box/sing-box.exe version
+
+      - name: Test core logic
+        run: |
+          dotnet run --project tests/Camelot.Core.Tests -c Release -- build/configs
+          if ($LASTEXITCODE -ne 0) { throw "Проверки логики не прошли" }
+          foreach ($config in Get-ChildItem build/configs/*.json) {
+            & build/sing-box/sing-box.exe check -c $config.FullName
+            if ($LASTEXITCODE -ne 0) { throw "sing-box check не прошёл: $($config.Name)" }
+          }
+          Write-Host "sing-box check: все конфиги корректны"
+
+      - name: Publish Camelot.exe
+        run: |
+          dotnet publish src/Camelot.App/Camelot.App.csproj -c Release -r win-x64 -o build/publish
+          if ($LASTEXITCODE -ne 0) { throw "Сборка приложения не удалась" }
+          Get-ChildItem build/publish | Format-Table Name, Length
+
+      - name: Package
+        run: |
+          $dir = "build/Camelot"
+          New-Item -ItemType Directory $dir -Force | Out-Null
+          Get-ChildItem build/publish -File | Where-Object { $_.Extension -ne ".pdb" } | Copy-Item -Destination $dir
+          Copy-Item build/sing-box/sing-box.exe, build/sing-box/libcronet.dll $dir/
+          Copy-Item build/sing-box/LICENSE "$dir/sing-box-LICENSE.txt"
+          Copy-Item packaging/README.txt "$dir/README.txt"
+          if (-not (Test-Path "$dir/Camelot.exe")) { throw "Нет Camelot.exe" }
+          Compress-Archive -Path "$dir/*" -DestinationPath build/Camelot-win-x64.zip -CompressionLevel Optimal
+          Get-ChildItem $dir | Format-Table Name, Length
+          Get-Item build/Camelot-win-x64.zip | Format-Table Name, Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Camelot-win-x64
+          path: build/Camelot-win-x64.zip
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: win-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: Camelot для Windows, сборка ${{ github.run_number }}
+          prerelease: true
+          files: build/Camelot-win-x64.zip
+          body: |
+            Скачайте Camelot-win-x64.zip, распакуйте в любую папку и запустите Camelot.exe.
+            Windows 10/11 x64, установка .NET не нужна. Ядро sing-box ${{ env.SING_BOX_VERSION }}, MTU 1280, IPv4 + IPv6.
