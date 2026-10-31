@@ -1,16 +1,18 @@
 using System;
 using System.Globalization;
 using System.Linq;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using Camelot.Core;
 
 namespace Camelot.App;
 
-/// <summary>Редактор прокси. Работает с копией профиля и отдаёт результат только после проверки.</summary>
+/// <summary>Редактор прокси. Работает с копией профиля и отдаёт результат только после проверки полей.</summary>
 public partial class ProfileEditorWindow : Window
 {
     private readonly ProxyProfile _profile;
+    private CancellationTokenSource? _check;
 
     public ProfileEditorWindow(ProxyProfile profile, bool isNew)
     {
@@ -22,7 +24,6 @@ public partial class ProfileEditorWindow : Window
         Fill(SsMethodBox, ProxyProfile.SsMethods.Select(m => (m, (object)m)));
         Fill(SecurityBox, Enum.GetValues<VlessSecurity>().Select(s => (s.Title(), (object)s)));
         Fill(FingerprintBox, ProxyProfile.Fingerprints.Select(f => (f, (object)f)));
-        Fill(IpPreferenceBox, Enum.GetValues<ServerIpPreference>().Select(p => (p.Title(), (object)p)));
 
         Load(_profile);
         Loaded += (_, _) =>
@@ -30,6 +31,7 @@ public partial class ProfileEditorWindow : Window
             NameBox.Focus();
             NameBox.SelectAll();
         };
+        Closed += (_, _) => _check?.Cancel();
     }
 
     public ProxyProfile? Result { get; private set; }
@@ -56,17 +58,12 @@ public partial class ProfileEditorWindow : Window
         PublicKeyBox.Text = p.RealityPublicKey;
         ShortIdBox.Text = p.RealityShortId;
 
-        MtuBox.Text = p.Mtu.ToString(CultureInfo.InvariantCulture);
-        Select(IpPreferenceBox, p.IpPreference);
-        TunnelIPv6Check.IsChecked = p.TunnelIPv6;
-        BlockQuicCheck.IsChecked = p.BlockQuic;
-
         UpdateVisibility();
     }
 
-    private void Save_Click(object sender, RoutedEventArgs e)
+    /// <summary>Собирает профиль из полей. null — поле заполнено неверно (текст ошибки уже показан).</summary>
+    private ProxyProfile? ReadForm()
     {
-        ErrorText.Text = "";
         var p = _profile.Clone();
         p.Name = NameBox.Text.Trim();
         p.Protocol = Selected<ProxyProtocol>(ProtocolBox);
@@ -74,8 +71,9 @@ public partial class ProfileEditorWindow : Window
 
         if (!int.TryParse(PortBox.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var port))
         {
-            ShowError("Порт должен быть числом от 1 до 65535", PortBox);
-            return;
+            ShowStatus("Порт должен быть числом от 1 до 65535", success: false);
+            PortBox.Focus();
+            return null;
         }
         p.Port = port;
 
@@ -94,16 +92,6 @@ public partial class ProfileEditorWindow : Window
         p.RealityPublicKey = PublicKeyBox.Text.Trim();
         p.RealityShortId = ShortIdBox.Text.Trim();
 
-        if (!int.TryParse(MtuBox.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var mtu))
-        {
-            ShowError($"MTU должен быть числом от {ProxyProfile.MinMtu} до {ProxyProfile.MaxMtu}", MtuBox);
-            return;
-        }
-        p.Mtu = mtu;
-        p.IpPreference = Selected<ServerIpPreference>(IpPreferenceBox);
-        p.TunnelIPv6 = TunnelIPv6Check.IsChecked == true;
-        p.BlockQuic = BlockQuicCheck.IsChecked == true;
-
         if (p.Name.Length == 0)
         {
             p.Name = p.NormalizedServer.Length > 0 ? $"{p.Protocol.Title()} · {p.NormalizedServer}" : "Мой прокси";
@@ -115,18 +103,78 @@ public partial class ProfileEditorWindow : Window
         }
         catch (ProfileException ex)
         {
-            ShowError(ex.Message, null);
+            ShowStatus(ex.Message, success: false);
+            return null;
+        }
+        return p;
+    }
+
+    private void Save_Click(object sender, RoutedEventArgs e)
+    {
+        if (ReadForm() is not ProxyProfile p)
+        {
             return;
         }
-
         Result = p;
         DialogResult = true;
     }
 
-    private void ShowError(string message, Control? focus)
+    /// <summary>Подключается к прокси напрямую и проверяет логин, пароль и тип прокси.</summary>
+    private async void Check_Click(object sender, RoutedEventArgs e)
+    {
+        if (ReadForm() is not ProxyProfile p)
+        {
+            return;
+        }
+        if (!p.Protocol.IsPlainProxy())
+        {
+            ShowStatus("Проверка перед сохранением доступна для SOCKS5 и HTTP. Shadowsocks и VLESS проверяются при подключении.", success: false);
+            return;
+        }
+
+        _check?.Cancel();
+        var check = new CancellationTokenSource();
+        _check = check;
+        CheckButton.IsEnabled = false;
+        ShowStatus("Проверка прокси…", success: null);
+        try
+        {
+            var result = await ProxyProbe.CheckAsync(p, cancellationToken: check.Token);
+            if (check.IsCancellationRequested)
+            {
+                return;
+            }
+            if (result.Success && result.Protocol is ProxyProtocol detected)
+            {
+                // Тип подобран автоматически — переносим его в поля.
+                Select(ProtocolBox, detected);
+                HttpsCheck.IsChecked = result.UseTls;
+                UpdateVisibility();
+            }
+            ShowStatus(result.Message, result.Success);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            if (ReferenceEquals(_check, check))
+            {
+                CheckButton.IsEnabled = true;
+            }
+        }
+    }
+
+    private void ShowStatus(string message, bool? success)
     {
         ErrorText.Text = message;
-        focus?.Focus();
+        var brush = success switch
+        {
+            true => "SystemFillColorSuccessBrush",
+            false => "SystemFillColorCriticalBrush",
+            null => "TextFillColorSecondaryBrush",
+        };
+        ErrorText.SetResourceReference(TextBlock.ForegroundProperty, brush);
     }
 
     // ---------------------------------------------------------------- видимость секций
@@ -148,6 +196,7 @@ public partial class ProfileEditorWindow : Window
         SsPanel.Visibility = protocol == ProxyProtocol.Shadowsocks ? Visibility.Visible : Visibility.Collapsed;
         VlessPanel.Visibility = protocol == ProxyProtocol.Vless ? Visibility.Visible : Visibility.Collapsed;
         HttpsCheck.Visibility = protocol == ProxyProtocol.Http ? Visibility.Visible : Visibility.Collapsed;
+        CheckButton.Visibility = protocol.IsPlainProxy() ? Visibility.Visible : Visibility.Collapsed;
 
         if (SecurityBox.SelectedItem is not null)
         {
@@ -158,10 +207,11 @@ public partial class ProfileEditorWindow : Window
 
         ServerHint.Text = protocol.IsPlainProxy()
             ? "Адрес и порт прокси, как их выдал провайдер."
-            : "Для сотовых сетей с IPv6 (МТС и др.) укажите IPv6-адрес сервера или домен с записью AAAA. Сервер должен слушать «::», а не «0.0.0.0».";
+            : "Адрес вашего сервера: домен или IPv4.";
         PlainHint.Text = protocol == ProxyProtocol.Http
-            ? "HTTP-прокси передаёт только TCP: UDP и QUIC отключаются автоматически. DNS-запросы идут через прокси."
-            : "Оставьте поля пустыми, если прокси без логина. DNS-запросы идут через прокси, сайты не видят ваш IP.";
+            ? "Обычный HTTP-прокси провайдера работает и с HTTPS-сайтами — галочка «HTTPS-прокси» ему не нужна. " +
+              "Включайте её, только если провайдер прямо назвал прокси HTTPS. Не уверены — нажмите «Проверить»: тип определится сам."
+            : "Оставьте поля пустыми, если прокси без логина. Не уверены в типе прокси — нажмите «Проверить»: тип определится сам.";
 
         if (SsMethodBox.SelectedItem is not null)
         {

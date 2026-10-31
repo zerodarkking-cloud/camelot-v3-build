@@ -12,6 +12,9 @@ public sealed class AppSettings
     public ConnectionMode Mode { get; set; } = ConnectionMode.Tun;
     public bool VerboseLog { get; set; }
     public bool TrayHintShown { get; set; }
+
+    /// <summary>Имя адаптера. Меняется, если Windows не даёт создать адаптер со старым именем.</summary>
+    public string InterfaceName { get; set; } = "Camelot";
 }
 
 /// <summary>Профили (зашифрованы DPAPI) и настройки приложения.</summary>

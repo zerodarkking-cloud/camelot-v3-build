@@ -25,14 +25,16 @@ public sealed class CoreOptions
 /// <summary>
 /// Собирает конфиг sing-box (формат 1.14) из профиля.
 ///
-/// Режим TUN: виртуальный адаптер wintun с MTU 1280 (минимум IPv6 — крупные пакеты не теряются
-/// в сотовых сетях вроде МТС), адресами IPv4 + IPv6 и strict_route — Windows не может отправить
-/// DNS мимо туннеля. Режим «Системный прокси»: локальный SOCKS/HTTP-порт на 127.0.0.1.
+/// Режим TUN — «как VPN»: виртуальный адаптер wintun только с IPv4. strict_route правилами
+/// брандмауэра Windows делает IPv6 недоступным и не выпускает DNS мимо туннеля, поэтому
+/// программы идут через прокси по IPv4 и ничего не утекает в обход. Стек gVisor работает
+/// внутри sing-box и не зависит от брандмауэра Windows и сторонних антивирусов.
+/// Режим «Системный прокси»: локальный SOCKS/HTTP-порт на 127.0.0.1.
 /// </summary>
 public static class ConfigBuilder
 {
     public const string TunInet4 = "172.19.0.1/30";
-    public const string TunInet6 = "fdfe:dcba:9876::1/126";
+    public const int TunMtu = 1500;
 
     private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = true };
 
@@ -105,11 +107,11 @@ public static class ConfigBuilder
                 break;
         }
 
-        // Домен сервера резолвит системный DNS, с выбранным приоритетом IPv6/IPv4.
+        // Домен прокси-сервера резолвит системный DNS, по IPv4.
         proxy["domain_resolver"] = new JsonObject
         {
             ["server"] = "dns-local",
-            ["strategy"] = profile.IpPreference.SingBoxValue(),
+            ["strategy"] = "prefer_ipv4",
         };
 
         var dns = new JsonObject
@@ -132,12 +134,9 @@ public static class ConfigBuilder
                 },
             },
             ["final"] = "dns-remote",
+            // Программам отдаём только IPv4-адреса сайтов: IPv6 в туннеле нет.
+            ["strategy"] = "ipv4_only",
         };
-        if (!profile.TunnelIPv6)
-        {
-            // Программам отдаём только IPv4-адреса сайтов: работает с любым прокси.
-            dns["strategy"] = "ipv4_only";
-        }
 
         JsonObject inbound;
         if (options.Mode == ConnectionMode.Tun)
@@ -147,8 +146,9 @@ public static class ConfigBuilder
                 ["type"] = "tun",
                 ["tag"] = "tun-in",
                 ["interface_name"] = options.InterfaceName,
-                ["address"] = new JsonArray(TunInet4, TunInet6),
-                ["mtu"] = profile.Mtu,
+                ["address"] = new JsonArray(TunInet4),
+                ["mtu"] = TunMtu,
+                ["stack"] = "gvisor",
                 ["auto_route"] = true,
                 ["strict_route"] = true,
             };
@@ -176,8 +176,9 @@ public static class ConfigBuilder
             // чтобы программы не ждали таймаута и не уходили мимо прокси (DNS обработан выше).
             rules.Add(new JsonObject { ["network"] = "udp", ["action"] = "reject" });
         }
-        else if (profile.BlockQuic)
+        else
         {
+            // QUIC (UDP 443) через прокси работает плохо: браузеры сразу переходят на TCP.
             rules.Add(new JsonObject { ["network"] = "udp", ["port"] = 443, ["action"] = "reject" });
         }
 

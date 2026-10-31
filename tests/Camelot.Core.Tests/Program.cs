@@ -3,9 +3,15 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Threading.Tasks;
 using Camelot.Core;
 
 // Значения ниже — вымышленные примеры. Реальные логины и пароли в репозиторий не попадают.
+if (args.Length > 0 && args[0] == "probe")
+{
+    return await ProbeTests.RunAsync(args);
+}
+
 var outDir = args.Length > 0 ? args[0] : Path.Combine(Path.GetTempPath(), "camelot-configs");
 Directory.CreateDirectory(outDir);
 
@@ -108,22 +114,24 @@ foreach (var (name, profile) in profiles)
 {
     foreach (var mode in new[] { ConnectionMode.Tun, ConnectionMode.SystemProxy })
     {
-        var options = new CoreOptions { Mode = mode, MixedPort = 2081, ApiPort = 19090, ApiSecret = "test-secret", VerboseLog = mode == ConnectionMode.SystemProxy };
+        var options = new CoreOptions { Mode = mode, MixedPort = 2081, ApiPort = 19090, ApiSecret = "test-secret", VerboseLog = mode == ConnectionMode.SystemProxy, InterfaceName = "Camelot-test" };
         var json = ConfigBuilder.Build(profile, options);
         var node = JsonNode.Parse(json)!;
         var inbound = node["inbounds"]![0]!;
         if (mode == ConnectionMode.Tun)
         {
-            Check((int)inbound["mtu"]! == 1280, $"{name}: MTU 1280");
-            Check((bool)inbound["strict_route"]!, $"{name}: strict_route");
-            Check(inbound["address"]!.AsArray().Count == 2, $"{name}: IPv4 + IPv6 в TUN");
+            Check((bool)inbound["strict_route"]!, $"{name}: strict_route (IPv6 и DNS не идут в обход)");
+            Check(inbound["address"]!.AsArray().Count == 1 && inbound["address"]![0]!.ToString().StartsWith("172.19."), $"{name}: только IPv4 в TUN");
+            Check((string)inbound["stack"]! == "gvisor", $"{name}: стек gvisor");
+            Check((string)inbound["interface_name"]! == "Camelot-test", $"{name}: имя адаптера");
         }
         else
         {
             Check((string)inbound["type"]! == "mixed" && (int)inbound["listen_port"]! == 2081, $"{name}: mixed 127.0.0.1:2081");
         }
         Check((bool)node["route"]!["auto_detect_interface"]!, $"{name}: auto_detect_interface");
-        Check((string)node["outbounds"]![0]!["domain_resolver"]!["strategy"]! == "prefer_ipv6", $"{name}: prefer_ipv6");
+        Check((string)node["outbounds"]![0]!["domain_resolver"]!["strategy"]! == "prefer_ipv4", $"{name}: прокси по IPv4");
+        Check((string)node["dns"]!["strategy"]! == "ipv4_only", $"{name}: DNS только IPv4");
         File.WriteAllText(Path.Combine(outDir, $"{name}-{mode.ToString().ToLowerInvariant()}.json"), json);
     }
 }
@@ -134,17 +142,8 @@ Check(httpRules[^1]!["network"]!.ToString() == "udp" && httpRules[^1]!["port"] i
 var socksRules = JsonNode.Parse(ConfigBuilder.Build(p1, new CoreOptions()))!["route"]!["rules"]!.AsArray();
 Check((int)socksRules[^1]!["port"]! == 443, "SOCKS5: отклоняется только QUIC");
 
-// Вариант с изменёнными сетевыми настройками.
-var tuned = p1.Clone();
-tuned.Mtu = 1400;
-tuned.TunnelIPv6 = true;
-tuned.BlockQuic = false;
-tuned.IpPreference = ServerIpPreference.IPv4Only;
-var tunedJson = ConfigBuilder.Build(tuned, new CoreOptions());
-var tunedNode = JsonNode.Parse(tunedJson)!;
-Check(tunedNode["dns"]!["strategy"] is null, "IPv6 для сайтов: без ipv4_only");
-Check(tunedNode["experimental"] is null, "без Clash API, если порт не задан");
-File.WriteAllText(Path.Combine(outDir, "socks-tuned-tun.json"), tunedJson);
+var noApi = JsonNode.Parse(ConfigBuilder.Build(p1, new CoreOptions()))!;
+Check(noApi["experimental"] is null, "без Clash API, если порт не задан");
 
 Console.WriteLine($"{checks - failures}/{checks} проверок пройдено, конфигов: {Directory.GetFiles(outDir, "*.json").Length} в {outDir}");
 return failures == 0 ? 0 : 1;

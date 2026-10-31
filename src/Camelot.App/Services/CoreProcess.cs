@@ -5,13 +5,21 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace Camelot.App.Services;
 
-public sealed class CoreException(string message) : Exception(message);
+public sealed class CoreException(string message, bool adapterConflict = false) : Exception(message)
+{
+    /// <summary>
+    /// Windows не дала создать адаптер с прежним именем: от прошлого запуска остался «зависший»
+    /// адаптер. Лечится запуском с новым именем.
+    /// </summary>
+    public bool AdapterConflict { get; } = adapterConflict;
+}
 
 /// <summary>
 /// Процесс sing-box.exe. Конфиг передаётся через stdin, поэтому пароли прокси не пишутся на диск.
@@ -132,7 +140,7 @@ public sealed class CoreProcess : IDisposable
             {
                 // Дочитываем вывод, чтобы в ошибке была настоящая причина.
                 process.WaitForExit(1000);
-                throw new CoreException(DescribeFailure(process.ExitCode));
+                throw DescribeFailure(process.ExitCode);
             }
             try
             {
@@ -174,10 +182,15 @@ public sealed class CoreProcess : IDisposable
         {
             if (!process.HasExited)
             {
-                // Адаптер wintun и правила брандмауэра sing-box живут, пока жив процесс:
-                // Windows убирает их сама при его завершении.
-                process.Kill(entireProcessTree: true);
-                process.WaitForExit(5000);
+                // Сначала просим sing-box завершиться штатно (как Ctrl+C в консоли): тогда он сам
+                // удаляет адаптер wintun и правила брандмауэра. Принудительное завершение — запасной вариант.
+                var graceful = ConsoleControl.SendCtrlC(process);
+                if (!graceful || !process.WaitForExit(6000))
+                {
+                    process.Kill(entireProcessTree: true);
+                    process.WaitForExit(5000);
+                }
+                ConsoleControl.RestoreCtrlC();
             }
         }
         catch (Exception e)
@@ -230,11 +243,11 @@ public sealed class CoreProcess : IDisposable
                 return;
             }
         }
-        Crashed?.Invoke(DescribeFailure(code));
+        Crashed?.Invoke(DescribeFailure(code).Message);
     }
 
     /// <summary>Понятное объяснение по последним строкам журнала ядра.</summary>
-    private string DescribeFailure(int exitCode)
+    private CoreException DescribeFailure(int exitCode)
     {
         string[] lines;
         lock (_tail)
@@ -244,17 +257,23 @@ public sealed class CoreProcess : IDisposable
         var all = string.Join("\n", lines);
         var lower = all.ToLowerInvariant();
 
+        if (lower.Contains("create adapter") || lower.Contains("open existing adapter"))
+        {
+            return new CoreException(
+                "Windows не дала создать адаптер Camelot: от прошлого запуска остался старый адаптер.",
+                adapterConflict: true);
+        }
         if (lower.Contains("access is denied") || lower.Contains("отказано в доступе") || lower.Contains("requires elevation"))
         {
-            return "Нет прав администратора: Windows не дала создать сетевой адаптер. Запустите Camelot от имени администратора.";
+            return new CoreException("Нет прав администратора: Windows не дала создать сетевой адаптер. Запустите Camelot от имени администратора.");
         }
         if (lower.Contains("only one usage of each socket address") || lower.Contains("address already in use"))
         {
-            return "Порт уже занят другой программой. Закройте другой VPN или прокси-клиент и попробуйте снова.";
+            return new CoreException("Порт уже занят другой программой. Закройте другой VPN или прокси-клиент и попробуйте снова.");
         }
         if (lower.Contains("wintun") || lower.Contains("configure tun interface"))
         {
-            return "Не удалось создать адаптер Camelot. Закройте другие VPN-программы или выберите режим «Системный прокси». Подробности — на вкладке «Журнал».";
+            return new CoreException("Не удалось создать адаптер Camelot. Закройте другие VPN-программы или выберите режим «Системный прокси». Подробности — на вкладке «Журнал».");
         }
 
         var fatal = lines.LastOrDefault(l => l.Contains("FATAL", StringComparison.Ordinal))
@@ -263,9 +282,9 @@ public sealed class CoreProcess : IDisposable
         {
             var index = fatal.IndexOf(']');
             var text = index >= 0 && index + 1 < fatal.Length ? fatal[(index + 1)..].Trim() : fatal.Trim();
-            return $"sing-box остановился: {text}";
+            return new CoreException($"sing-box остановился: {text}");
         }
-        return $"sing-box остановился (код {exitCode}). Подробности — на вкладке «Журнал».";
+        return new CoreException($"sing-box остановился (код {exitCode}). Подробности — на вкладке «Журнал».");
     }
 
     public void Dispose()
@@ -274,4 +293,68 @@ public sealed class CoreProcess : IDisposable
         _job?.Dispose();
         _job = null;
     }
+}
+
+/// <summary>
+/// Штатная остановка консольного процесса из оконного приложения: подключаемся к его скрытой
+/// консоли и отправляем Ctrl+C. Сами на время отправки игнорируем Ctrl+C, чтобы не закрыться.
+/// </summary>
+internal static class ConsoleControl
+{
+    private const uint CtrlCEvent = 0;
+    private static readonly object Sync = new();
+
+    public static bool SendCtrlC(Process process)
+    {
+        lock (Sync)
+        {
+            try
+            {
+                FreeConsole();
+                if (!AttachConsole((uint)process.Id))
+                {
+                    return false;
+                }
+                SetConsoleCtrlHandler(IntPtr.Zero, true);
+                var sent = GenerateConsoleCtrlEvent(CtrlCEvent, 0);
+                FreeConsole();
+                return sent;
+            }
+            catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException)
+            {
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Снова разрешает Ctrl+C. Флаг игнорирования наследуется дочерними процессами,
+    /// поэтому его нужно снять до следующего запуска sing-box.
+    /// </summary>
+    public static void RestoreCtrlC()
+    {
+        lock (Sync)
+        {
+            try
+            {
+                Thread.Sleep(300);
+                SetConsoleCtrlHandler(IntPtr.Zero, false);
+            }
+            catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException)
+            {
+            }
+        }
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AttachConsole(uint dwProcessId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool FreeConsole();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetConsoleCtrlHandler(IntPtr handlerRoutine, bool add);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GenerateConsoleCtrlEvent(uint dwCtrlEvent, uint dwProcessGroupId);
 }

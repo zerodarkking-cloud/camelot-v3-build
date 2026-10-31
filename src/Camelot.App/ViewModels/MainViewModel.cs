@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -40,6 +41,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private int _mixedPort;
     private DateTime? _connectedSince;
     private string? _errorMessage;
+    private string? _notice;
     private CancellationTokenSource? _session;
     private ClashClient? _clash;
     private CoreSnapshot? _lastSnapshot;
@@ -78,6 +80,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         // Во время подключения кнопка остаётся активной — повторное нажатие отменяет подключение.
         ToggleCommand = new RelayCommand(() => _ = ToggleAsync(), () => State != TunnelState.Disconnecting);
         DismissErrorCommand = new RelayCommand(() => ErrorMessage = null);
+        DismissNoticeCommand = new RelayCommand(() => Notice = null);
         CheckCommand = new RelayCommand(() => _ = RefreshPingAndIpAsync(), () => State == TunnelState.Connected);
         ClearLogCommand = new RelayCommand(ClearLog);
 
@@ -90,6 +93,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand ToggleCommand { get; }
 
     public RelayCommand DismissErrorCommand { get; }
+
+    public RelayCommand DismissNoticeCommand { get; }
 
     public RelayCommand CheckCommand { get; }
 
@@ -162,6 +167,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public bool HasError => !string.IsNullOrEmpty(ErrorMessage);
 
+    /// <summary>Информационное сообщение (например, тип прокси исправлен автоматически).</summary>
+    public string? Notice
+    {
+        get => _notice;
+        set
+        {
+            if (Set(ref _notice, value))
+            {
+                Raise(nameof(HasNotice));
+            }
+        }
+    }
+
+    public bool HasNotice => !string.IsNullOrEmpty(Notice);
+
     // ---------------------------------------------------------------- режим
 
     public ConnectionMode Mode
@@ -206,8 +226,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     public string ModeHint => Mode == ConnectionMode.Tun
-        ? "Через прокси идёт весь трафик Windows: браузеры, мессенджеры, игры. Адаптер с MTU 1280, DNS не утекает мимо туннеля."
-        : "Через прокси идут браузеры и программы, которые используют системный прокси Windows. Остальные работают напрямую.";
+        ? "Как VPN: через прокси идёт весь трафик Windows — браузеры, мессенджеры, игры. IPv6 на время подключения отключается, DNS тоже идёт через прокси, ничего не уходит в обход."
+        : "Через прокси идут только браузеры и программы, которые используют системный прокси Windows. Остальные работают напрямую.";
 
     // ---------------------------------------------------------------- прокси
 
@@ -251,19 +271,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     public bool HasProfiles => Profiles.Count > 0;
-
-    public string NetworkSummary
-    {
-        get
-        {
-            var profile = ActiveProfile?.Profile;
-            if (profile is null)
-            {
-                return "";
-            }
-            return $"MTU {profile.Mtu} · к серверу: {profile.IpPreference.Title().ToLowerInvariant()} · IPv6 для сайтов: {(profile.TunnelIPv6 ? "вкл" : "выкл")}";
-        }
-    }
 
     public void Activate(ProfileItem item)
     {
@@ -348,7 +355,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void RaiseProfileDependent()
     {
-        Raise(nameof(NetworkSummary));
         Raise(nameof(HasProfiles));
     }
 
@@ -483,6 +489,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         ErrorMessage = null;
+        Notice = null;
         ResetStats();
         State = TunnelState.Connecting;
         var session = new CancellationTokenSource();
@@ -492,6 +499,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         try
         {
             var profile = item.Profile.Clone();
+            await CheckProxyAsync(profile, session.Token);
+
             var apiPort = NetUtil.FreeTcpPort();
             var secret = NetUtil.RandomSecret();
             _mixedPort = _runningMode == ConnectionMode.SystemProxy ? PickMixedPort() : 0;
@@ -502,11 +511,23 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 ApiPort = apiPort,
                 ApiSecret = secret,
                 VerboseLog = VerboseLog,
+                InterfaceName = _settings.InterfaceName,
             };
-            var config = ConfigBuilder.Build(profile, options);
-            AppendLog($"[Camelot] Подключение: {profile.Name} ({profile.ProtocolTitle}, {profile.DisplayAddress}), режим: {(_runningMode == ConnectionMode.Tun ? "TUN" : $"системный прокси 127.0.0.1:{_mixedPort}")}");
+            AppendLog($"[Camelot] Подключение: {profile.Name} ({profile.ProtocolTitle}, {profile.DisplayAddress}), режим: {(_runningMode == ConnectionMode.Tun ? $"VPN, адаптер {options.InterfaceName}" : $"системный прокси 127.0.0.1:{_mixedPort}")}");
 
-            await _core.StartAsync(config, apiPort, secret, session.Token);
+            try
+            {
+                await _core.StartAsync(ConfigBuilder.Build(profile, options), apiPort, secret, session.Token);
+            }
+            catch (CoreException e) when (e.AdapterConflict && _runningMode == ConnectionMode.Tun)
+            {
+                // От прошлого запуска остался «зависший» адаптер с этим именем — создаём адаптер с новым.
+                _settings.InterfaceName = $"Camelot-{RandomNumberGenerator.GetHexString(4, lowercase: true)}";
+                ProfileStore.SaveSettings(_settings);
+                options.InterfaceName = _settings.InterfaceName;
+                AppendLog($"[Camelot] {e.Message} Создаю новый адаптер: {options.InterfaceName}");
+                await _core.StartAsync(ConfigBuilder.Build(profile, options), apiPort, secret, session.Token);
+            }
             session.Token.ThrowIfCancellationRequested();
 
             if (_runningMode == ConnectionMode.SystemProxy)
@@ -540,6 +561,40 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             await StopCoreAsync();
             ErrorMessage = $"Не удалось подключиться: {e.Message}";
             State = TunnelState.Disconnected;
+        }
+    }
+
+    /// <summary>
+    /// Проверка SOCKS5/HTTP-прокси до запуска ядра: вместо «подключено, но не работает» —
+    /// понятная причина. Если тип прокси указан неверно (например, включён HTTPS у обычного
+    /// HTTP-прокси), исправляет его в профиле.
+    /// </summary>
+    private async Task CheckProxyAsync(ProxyProfile profile, CancellationToken cancellationToken)
+    {
+        if (!profile.Protocol.IsPlainProxy())
+        {
+            return;
+        }
+        AppendLog($"[Camelot] Проверка прокси {profile.DisplayAddress}…");
+        var result = await ProxyProbe.CheckAsync(profile, cancellationToken: cancellationToken);
+        AppendLog($"[Camelot] {result.Message}");
+
+        if (result.Success && result.Protocol is ProxyProtocol detected
+            && (detected != profile.Protocol || result.UseTls != profile.UseTls))
+        {
+            profile.Protocol = detected;
+            profile.UseTls = result.UseTls;
+            Save(profile.Clone());
+            Notice = $"Тип прокси исправлен: это {ProxyProbe.KindTitle(detected, result.UseTls)}.";
+        }
+
+        if (!result.Success)
+        {
+            if (result.IsBlocking)
+            {
+                throw new CoreException(result.Message);
+            }
+            AppendLog("[Camelot] Прокси отвечает, но проверочный сайт недоступен — подключаюсь всё равно.");
         }
     }
 

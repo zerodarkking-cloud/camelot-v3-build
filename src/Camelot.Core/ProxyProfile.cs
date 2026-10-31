@@ -20,16 +20,6 @@ public enum VlessSecurity
     Tls,
 }
 
-/// <summary>Каким IP-протоколом ядро подключается к серверу, если его адрес — домен.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<ServerIpPreference>))]
-public enum ServerIpPreference
-{
-    PreferIPv6,
-    PreferIPv4,
-    IPv6Only,
-    IPv4Only,
-}
-
 [JsonConverter(typeof(JsonStringEnumConverter<ConnectionMode>))]
 public enum ConnectionMode
 {
@@ -58,36 +48,13 @@ public static class EnumText
         _ => value.ToString(),
     };
 
-    public static string Title(this ServerIpPreference value) => value switch
-    {
-        ServerIpPreference.PreferIPv6 => "Сначала IPv6",
-        ServerIpPreference.PreferIPv4 => "Сначала IPv4",
-        ServerIpPreference.IPv6Only => "Только IPv6",
-        ServerIpPreference.IPv4Only => "Только IPv4",
-        _ => value.ToString(),
-    };
-
-    /// <summary>Значение стратегии DNS в sing-box.</summary>
-    public static string SingBoxValue(this ServerIpPreference value) => value switch
-    {
-        ServerIpPreference.PreferIPv6 => "prefer_ipv6",
-        ServerIpPreference.PreferIPv4 => "prefer_ipv4",
-        ServerIpPreference.IPv6Only => "ipv6_only",
-        ServerIpPreference.IPv4Only => "ipv4_only",
-        _ => "prefer_ipv6",
-    };
-
     public static bool IsPlainProxy(this ProxyProtocol value) =>
         value is ProxyProtocol.Socks or ProxyProtocol.Http;
 }
 
-/// <summary>Один прокси-сервер и его сетевые настройки.</summary>
+/// <summary>Один прокси-сервер.</summary>
 public sealed class ProxyProfile
 {
-    public const int DefaultMtu = 1280;
-    public const int MinMtu = 1280;
-    public const int MaxMtu = 1500;
-
     public static readonly string[] SsMethods =
     [
         "2022-blake3-aes-128-gcm",
@@ -112,7 +79,10 @@ public sealed class ProxyProfile
     public string Username { get; set; } = "";
     public string Password { get; set; } = "";
 
-    /// <summary>HTTPS-прокси: TLS-соединение до самого прокси.</summary>
+    /// <summary>
+    /// HTTPS-прокси: TLS-соединение до самого прокси. Редкость: обычные HTTP-прокси провайдеров
+    /// работают без TLS, в том числе для HTTPS-сайтов.
+    /// </summary>
     public bool UseTls { get; set; }
 
     // Shadowsocks
@@ -127,16 +97,6 @@ public sealed class ProxyProfile
     public string Fingerprint { get; set; } = "chrome";
     public string RealityPublicKey { get; set; } = "";
     public string RealityShortId { get; set; } = "";
-
-    // Сеть
-    public int Mtu { get; set; } = DefaultMtu;
-    public ServerIpPreference IpPreference { get; set; } = ServerIpPreference.PreferIPv6;
-
-    /// <summary>Отдавать программам IPv6-адреса сайтов. Включать, только если прокси выходит в IPv6.</summary>
-    public bool TunnelIPv6 { get; set; }
-
-    /// <summary>Блокировать QUIC (UDP 443), чтобы программы переходили на TCP.</summary>
-    public bool BlockQuic { get; set; } = true;
 
     /// <summary>Адрес без пробелов и квадратных скобок: «[2a01::1]» → «2a01::1».</summary>
     [JsonIgnore]
@@ -159,7 +119,7 @@ public sealed class ProxyProfile
     public string ProtocolTitle => Protocol switch
     {
         ProxyProtocol.Socks => Username.Length == 0 ? "SOCKS5" : $"SOCKS5 · {Username}",
-        ProxyProtocol.Http => (UseTls ? "HTTPS" : "HTTP") + (Username.Length == 0 ? "" : $" · {Username}"),
+        ProxyProtocol.Http => (UseTls ? "HTTPS-прокси" : "HTTP") + (Username.Length == 0 ? "" : $" · {Username}"),
         ProxyProtocol.Shadowsocks => $"Shadowsocks · {SsMethod}",
         ProxyProtocol.Vless => $"VLESS · {Security.Title()}",
         _ => Protocol.ToString(),
@@ -182,10 +142,6 @@ public sealed class ProxyProfile
         if (Port is < 1 or > 65535)
         {
             throw new ProfileException("Порт должен быть от 1 до 65535");
-        }
-        if (Mtu is < MinMtu or > MaxMtu)
-        {
-            throw new ProfileException($"MTU должен быть от {MinMtu} до {MaxMtu}");
         }
 
         switch (Protocol)

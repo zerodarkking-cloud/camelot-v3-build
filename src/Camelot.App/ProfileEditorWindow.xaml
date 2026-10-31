@@ -58,7 +58,9 @@
                                 Content="&#xE7B3;" Margin="6,0,0,0" ToolTip="Показать пароль"
                                 AutomationProperties.Name="Показать пароль" Click="PasswordToggle_Click" />
                     </Grid>
-                    <CheckBox x:Name="HttpsCheck" Content="HTTPS (TLS до прокси)" Margin="0,12,0,0" />
+                    <CheckBox x:Name="HttpsCheck" Margin="0,12,0,0">
+                        <TextBlock TextWrapping="Wrap" Text="HTTPS-прокси (шифрованное соединение до самого прокси)" />
+                    </CheckBox>
                     <TextBlock x:Name="PlainHint" Style="{StaticResource HintStyle}" />
                 </StackPanel>
 
@@ -102,50 +104,30 @@
                     </StackPanel>
                 </StackPanel>
 
-                <!-- Сеть -->
-                <TextBlock Text="СЕТЬ" Style="{StaticResource SectionLabelStyle}" />
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="110" />
-                        <ColumnDefinition Width="12" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel>
-                        <TextBlock Text="MTU" Style="{StaticResource FieldLabelStyle}" Margin="2,0,0,6" />
-                        <TextBox x:Name="MtuBox" FontFamily="{StaticResource MonoFont}" />
-                    </StackPanel>
-                    <StackPanel Grid.Column="2">
-                        <TextBlock Text="Подключение к серверу" Style="{StaticResource FieldLabelStyle}" Margin="2,0,0,6" />
-                        <ComboBox x:Name="IpPreferenceBox" HorizontalAlignment="Stretch" />
-                    </StackPanel>
-                </Grid>
-                <CheckBox x:Name="TunnelIPv6Check" Content="IPv6 для сайтов" Margin="0,14,0,0" />
-                <CheckBox x:Name="BlockQuicCheck" Content="Блокировать QUIC (UDP 443)" Margin="0,8,0,0" />
-                <TextBlock Style="{StaticResource HintStyle}">
-                    MTU 1280 — минимальный для IPv6: крупные пакеты не теряются в сотовых сетях (МТС и др.).
-                    «Подключение к серверу» действует, если адрес — домен. «IPv6 для сайтов» включайте,
-                    только если прокси выходит в IPv6. Блокировка QUIC переводит браузеры на TCP —
-                    помогает, если видео грузится рывками.
-                </TextBlock>
             </StackPanel>
         </ScrollViewer>
 
         <Border Grid.Row="1" Padding="22,12" BorderThickness="0,1,0,0"
                 BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}"
                 Background="{DynamicResource LayerFillColorDefaultBrush}">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <TextBlock x:Name="ErrorText" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0"
+            <StackPanel>
+                <!-- Результат проверки или ошибка в полях: на всю ширину, над кнопками. -->
+                <TextBlock x:Name="ErrorText" TextWrapping="Wrap" Margin="0,0,0,10"
                            Foreground="{DynamicResource SystemFillColorCriticalBrush}" />
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="CheckButton" MinWidth="96" Margin="0,0,8,0"
+                            ToolTip="Подключиться к прокси и проверить логин, пароль и тип прокси" Click="Check_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE72C;" FontFamily="{StaticResource IconFont}" FontSize="12"
+                                       VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBlock Text="Проверить" />
+                        </StackPanel>
+                    </Button>
                     <Button Content="Отмена" IsCancel="True" MinWidth="90" Margin="0,0,8,0" />
                     <Button Content="Сохранить" IsDefault="True" MinWidth="110"
                             Style="{DynamicResource AccentButtonStyle}" Click="Save_Click" />
                 </StackPanel>
-            </Grid>
+            </StackPanel>
         </Border>
     </Grid>
 </Window>
